@@ -1,7 +1,7 @@
 import "dotenv/config";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { OpenRouterClient } from "./llm/openrouter";
+import { LMStudioClient } from "./llm/lmstudio";
 import { createSnykScanTool } from "./tools/snyk-scan";
 import type { Message } from "./llm/types";
 import { createApplyUpgradeTool } from "./tools/apply-upgrade";
@@ -16,7 +16,7 @@ const targetDir = process.env.TARGET_DIR
 const MAX_ITERATIONS = 25;
 
 async function main() {
-  const llm = new OpenRouterClient();
+  const llm = new LMStudioClient();
 
   const tools = [
     createSnykScanTool(targetDir),
