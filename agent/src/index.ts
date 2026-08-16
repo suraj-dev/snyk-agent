@@ -6,6 +6,9 @@ import { createSnykScanTool } from "./tools/snyk-scan";
 import type { Message } from "./llm/types";
 import { createApplyUpgradeTool } from "./tools/apply-upgrade";
 import { createRunTestsTool } from "./tools/run-tests";
+import { createRevertUpgradeTool } from "./tools/git/revert-upgrade";
+import { createGitCommitTool } from "./tools/git/git-commit";
+import { gitCreateBranch, gitCurrentBranch, gitIsClean } from "./tools/git";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -13,15 +16,35 @@ const targetDir = process.env.TARGET_DIR
   ? path.resolve(process.env.TARGET_DIR)
   : path.resolve(__dirname, "../../snyk-agent-target");
 
-const MAX_ITERATIONS = 25;
+const MAX_ITERATIONS = 40;
 
 async function main() {
   const llm = new LMStudioClient();
 
+  const manifests = ["package.json", "package-lock.json"];
+  // Guardrail 1: refuse to run on a dirty tree — otherwise a commit could sweep
+  // in unrelated uncommitted changes.
+  if (!(await gitIsClean(targetDir, manifests))) {
+    console.error(
+      "Target manifests have uncommitted changes. Reset them first:\n" +
+        "  git checkout -- snyk-agent-target/package.json snyk-agent-target/package-lock.json",
+    );
+    process.exit(1);
+  }
+
+  // Guardrail 2: ALWAYS work on a fresh branch, never commit to the base branch.
+  // Creating the branch here (not via a tool) means the model can't skip it.
+  const baseBranch = await gitCurrentBranch(targetDir);
+  const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 12); // YYYYMMDDHHMM
+  const workBranch = `snyk-fix-${stamp}`;
+  await gitCreateBranch(targetDir, workBranch);
+  console.log(`Working on ${workBranch} (branched from ${baseBranch})`);
   const tools = [
     createSnykScanTool(targetDir),
     createApplyUpgradeTool(targetDir),
     createRunTestsTool(targetDir),
+    createRevertUpgradeTool(targetDir),
+    createGitCommitTool(targetDir),
   ];
   const toolMap = new Map(tools.map((t) => [t.definition.name, t]));
   const toolDefs = tools.map((t) => t.definition);
