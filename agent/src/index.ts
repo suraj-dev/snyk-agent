@@ -9,6 +9,7 @@ import { createRunTestsTool } from "./tools/run-tests";
 import { createRevertUpgradeTool } from "./tools/git/revert-upgrade";
 import { createGitCommitTool } from "./tools/git/git-commit";
 import { gitCreateBranch, gitCurrentBranch, gitIsClean } from "./tools/git";
+import { createCreatePrTool } from "./tools/git/create-pr";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -45,6 +46,8 @@ async function main() {
     createRunTestsTool(targetDir),
     createRevertUpgradeTool(targetDir),
     createGitCommitTool(targetDir),
+    createGitCommitTool(targetDir),
+    createCreatePrTool(targetDir),
   ];
   const toolMap = new Map(tools.map((t) => [t.definition.name, t]));
   const toolDefs = tools.map((t) => t.definition);
@@ -57,7 +60,8 @@ async function main() {
         "",
         "Workflow:",
         "1. Call snyk_scan to see vulnerabilities and the upgrades that fix them.",
-        "2. For EACH upgrade, one package at a time:",
+        "2. When upgrading, only upgrade to the version Snyk recommends (no ranges, no latest).",
+        "3. For EACH upgrade, one package at a time:",
         "   a. Call apply_upgrade with the package name and target version.",
         "   b. Call run_tests to check the upgrade didn't break the project.",
         "   c. If tests PASS, keep it and move to the next package.",
@@ -65,13 +69,19 @@ async function main() {
         "      review and continue with the remaining packages.",
         "3. After processing all upgrades, call snyk_scan once more to confirm the",
         "   final state, then summarize what was fixed and what needs manual review.",
+        "4. Call create_pull_request with branch, baseBranch, the list of fixed packages",
+        "   (name, from/to version, vulns fixed), the manual-review list (packages with no",
+        "   automated fix), and the before/after total vulnerability counts.",
         "",
         "Apply upgrades individually so a single breaking change can be isolated.",
+        "If a vulnerability has NO recommended upgrade in the scan's remediation data,",
+        " do NOT attempt to fix it. Record it under a 'manual review required' list with",
+        " the package name, severity, and the reason 'no automated fix available'.",
       ].join("\n"),
     },
     {
       role: "user",
-      content: "Scan the project and tell me what needs fixing.",
+      content: `Scan the project and fix what you can. You are on branch '${workBranch}', base branch '${baseBranch}'. Apply each fixable upgrade one at a time, committing successes and reverting failures. When done, open a pull request with create_pull_request, passing the fixed packages, manual-review items, and before/after vulnerability counts.`,
     },
   ];
 

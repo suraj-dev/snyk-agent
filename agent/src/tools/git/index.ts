@@ -35,3 +35,11 @@ export async function gitCommit(cwd: string, paths: string[], message: string): 
   const sha = await runCommand("git", ["rev-parse", "--short", "HEAD"], cwd);
   return sha.stdout.trim();
 }
+
+/** Push a branch to origin and set upstream. */
+export async function gitPush(cwd: string, branch: string): Promise<void> {
+  const res = await runCommand("git", ["push", "-u", "origin", branch], cwd);
+  if (res.code !== 0) {
+    throw new Error(`git push failed: ${res.stderr.trim() || res.stdout.trim()}`);
+  }
+}
