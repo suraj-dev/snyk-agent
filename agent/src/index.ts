@@ -8,7 +8,7 @@ import { createApplyUpgradeTool } from "./tools/apply-upgrade";
 import { createRunTestsTool } from "./tools/run-tests";
 import { createRevertUpgradeTool } from "./tools/git/revert-upgrade";
 import { createGitCommitTool } from "./tools/git/git-commit";
-import { gitCreateBranch, gitCurrentBranch, gitIsClean } from "./tools/git";
+import { gitCreateBranch, gitCurrentBranch, gitIsClean, gitCheckoutBranch } from "./tools/git";
 import { createCreatePrTool } from "./tools/git/create-pr";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -32,10 +32,11 @@ async function main() {
     );
     process.exit(1);
   }
+  const baseBranch = process.env.BASE_BRANCH ?? "main";
 
   // Guardrail 2: ALWAYS work on a fresh branch, never commit to the base branch.
   // Creating the branch here (not via a tool) means the model can't skip it.
-  const baseBranch = await gitCurrentBranch(targetDir);
+  await gitCheckoutBranch(targetDir, baseBranch);
   const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 12); // YYYYMMDDHHMM
   const workBranch = `snyk-fix-${stamp}`;
   await gitCreateBranch(targetDir, workBranch);
