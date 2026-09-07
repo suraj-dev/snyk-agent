@@ -12,6 +12,12 @@ interface ManualReviewItem {
   packageName: string;
   severity: string;
   reason: string;
+  /** Top-level dependency the vulnerable module arrives through, if indirect. */
+  via?: string;
+  vulnCount?: number;
+  /** Triage detail from the model: file:line proof and a concrete mitigation. */
+  evidence?: string;
+  mitigation?: string;
 }
 
 interface PrArgs {
@@ -39,6 +45,12 @@ function parseArgs(raw: Record<string, unknown>): PrArgs {
   };
 }
 
+/** Table-cell safe: no raw pipes or newlines, and an em dash for nothing. */
+function cell(value: string | undefined): string {
+  const text = (value ?? "").replace(/\s+/g, " ").replace(/\|/g, "\\|").trim();
+  return text || "—";
+}
+
 function buildBody(a: PrArgs): string {
   const lines: string[] = [];
   lines.push("## Automated dependency security fixes", "");
@@ -56,9 +68,16 @@ function buildBody(a: PrArgs): string {
 
   if (a.manualReview.length) {
     lines.push("### ⚠️ Requires manual review", "");
-    lines.push("| Package | Severity | Reason |", "|---|---|---|");
+    lines.push(
+      "| Package | Severity | Vulns | Reason | Evidence | Mitigation |",
+      "|---|---|---|---|---|---|",
+    );
     for (const m of a.manualReview) {
-      lines.push(`| \`${m.packageName}\` | ${m.severity} | ${m.reason} |`);
+      const name = m.via ? `\`${m.packageName}\` (via \`${m.via}\`)` : `\`${m.packageName}\``;
+      lines.push(
+        `| ${name} | ${m.severity} | ${m.vulnCount ?? "—"} | ${cell(m.reason)} ` +
+          `| ${cell(m.evidence)} | ${cell(m.mitigation)} |`,
+      );
     }
     lines.push("");
   }
@@ -74,8 +93,10 @@ export function createCreatePrTool(targetDir: string): Tool {
       description:
         "Push the working branch and open a GitHub pull request summarizing the " +
         "dependency fixes. Call this LAST, after all upgrades are committed or reverted " +
-        "and a final snyk_scan has run. Provide the fixed packages, any manual-review " +
-        "items, and the before/after vulnerability counts.",
+        "and every manual-review package has been triaged. The manual-review list and the " +
+        "vulnerability counts are recomputed from the final scan by the harness — your " +
+        "manualReview entries only ADD triage detail (evidence, mitigation) to packages " +
+        "that are genuinely still vulnerable; you cannot remove an item by omitting it.",
       parameters: {
         type: "object",
         properties: {
@@ -97,15 +118,27 @@ export function createCreatePrTool(targetDir: string): Tool {
           },
           manualReview: {
             type: "array",
-            description: "Vulnerabilities with no automated fix, or upgrades reverted for failing tests.",
+            description:
+              "Triage detail for the still-vulnerable packages. Membership is set by the " +
+              "harness; supply evidence and mitigation per package.",
             items: {
               type: "object",
               properties: {
                 packageName: { type: "string" },
                 severity: { type: "string" },
                 reason: { type: "string" },
+                evidence: {
+                  type: "string",
+                  description:
+                    "file:line proof from search_code/read_file showing whether untrusted " +
+                    "input reaches the vulnerable code.",
+                },
+                mitigation: {
+                  type: "string",
+                  description: "A concrete, specific remediation a reviewer can act on.",
+                },
               },
-              required: ["packageName", "severity", "reason"],
+              required: ["packageName"],
             },
           },
           vulnsBefore: { type: "number", description: "Total vulnerabilities before fixes." },

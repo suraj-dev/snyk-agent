@@ -1,8 +1,11 @@
 import { Tool } from "../../llm/types";
-import { runCommand } from "../exec/index";
+import { SnykScanner } from "./scanner";
 import { ScanSummary, SeverityCounts, SnykTestResult, UpgradeSummary, Severity } from "./types";
 
-export function createSnykScanTool(targetDir: string): Tool {
+export { createSnykScanner } from "./scanner";
+export type { SnykScanner } from "./scanner";
+
+export function createSnykScanTool(scanner: SnykScanner): Tool {
   return {
     definition: {
       name: "snyk_scan",
@@ -13,7 +16,10 @@ export function createSnykScanTool(targetDir: string): Tool {
       parameters: { type: "object", properties: {}, required: [] },
     },
     async execute(): Promise<string> {
-      const raw = await runSnyk(targetDir);
+      // ensure(), not scan(): the harness scans before the loop starts and
+      // invalidates after every dependency change, so this re-runs Snyk exactly
+      // when the tree has actually moved.
+      const raw = await scanner.ensure();
       return JSON.stringify(distill(raw), null, 2);
     },
   };
@@ -23,21 +29,7 @@ function zeroCounts(): SeverityCounts {
   return { critical: 0, high: 0, medium: 0, low: 0 };
 }
 
-async function runSnyk(targetDir: string): Promise<SnykTestResult> {
-  const result = await runCommand("snyk", ["test", "--json"], targetDir, 20 * 1024 * 1024);
-  // Snyk exits with code 1 when it FINDS vulnerabilities — not a real failure.
-  if (result.code === 0 || (result.code === 1 && result.stdout.trim())) {
-    return parseSnykJson(result.stdout);
-  }
-  // Exit 2/3, ENOENT (snyk not on PATH), auth failure, etc. → genuine error.
-  throw new Error(`snyk test failed (code ${result.code}): ${result.stderr.trim()}`);
-}
-
-function parseSnykJson(stdout: string): SnykTestResult {
-  return JSON.parse(stdout) as SnykTestResult;
-}
-
-function distill(raw: SnykTestResult): ScanSummary {
+export function distill(raw: SnykTestResult): ScanSummary {
   // Map each vuln id → severity, which also dedups vulns reachable via multiple paths.
   const sevById = new Map<string, Severity>();
   for (const v of raw.vulnerabilities ?? []) {
